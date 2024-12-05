@@ -4,6 +4,7 @@ import numpy as np
 import re
 import matplotlib.pyplot as plt
 from google.cloud import vision
+from unidecode import unidecode
 
 # lib for view
 import tkinter as tk
@@ -21,7 +22,7 @@ option_state = 0    # 0 for file and 1 for folder
 def get_api_path():
     '''Get API path location'''
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    api_path = os.path.join(current_dir, 'ocr-version-01-d4789f6ae821.json')
+    api_path = os.path.join(current_dir, 'ocr-version-01-5121e0c17319.json')
     return api_path
 
 def config_google_vision(api_path):
@@ -111,34 +112,46 @@ def detect_text_in_columns(client, cropped_table, filtered_positions):
         print("Không tìm thấy đủ cột.")
         return False
 
-    # # Hiển thị ma trận 2 chiều
-    # print("\nData Matrix:")
-    # for row in zip(*data_matrix):  # zip để sắp xếp các dòng theo thứ tự
-    #     print(row)
+    # Hiển thị ma trận 2 chiều
+    print("\nData Matrix:")
+    for row in zip(*data_matrix):  # zip để sắp xếp các dòng theo thứ tự
+        print(row)
 
     return data_matrix  # Trả về ma trận 2 chiều
 
 def process_data_matrix(data_matrix):
     '''Process data in the matrix based on specified rules'''
+
     for col in range(len(data_matrix)):
         # Kiểm tra nếu hàng đầu tiên của cột chứa từ "Mã hàng"
         if "Mã hàng" in data_matrix[col][0]:
             for row in range(1, len(data_matrix[col])):
                 # Xóa tất cả dấu cách trong các hàng còn lại nếu cột có "Mã hàng" ở hàng đầu tiên
-                data_matrix[col][row] = data_matrix[col][row].replace(" ", "")
+                data_matrix[col][row] = unidecode(data_matrix[col][row]).replace(" ", "")
 
-        if "Thành Tiền" in data_matrix[col][0]:
+        if "Thành Tiền" in data_matrix[col][0] or "SL" in data_matrix[col][0] or "Đơn giá" in data_matrix[col][0]:
             for row in range(1, len(data_matrix[col])):
                 # Xóa tất cả dấu cách trong các hàng còn lại nếu cột có "Thành Tiền" ở hàng đầu tiên
                 data_matrix[col][row] = data_matrix[col][row].replace(" ", "")
+                data_matrix[col][row] = data_matrix[col][row].replace("o", "0").replace("O", "0").replace("Q", "0")
+                data_matrix[col][row] = re.sub(r"[^\d]", "", data_matrix[col][row])
         
         for row in range(len(data_matrix[col])):
             # Loại bỏ các ký tự không thuộc bảng chữ cái tiếng Việt, trừ '-' và ','
             data_matrix[col][row] = re.sub(r"[^a-zA-ZÀ-ỹà-ỹ0-9\s\-,]", "", data_matrix[col][row])
             # Thay thế nhiều dấu cách liên tiếp bằng một dấu cách duy nhất
             data_matrix[col][row] = re.sub(r"\s{2,}", " ", data_matrix[col][row]).strip()
-    
+
     return data_matrix
+
+def sum_total_amount(data_matrix):
+    '''sum the "Thành tiền" column'''
+    total_amount = 0
+    for col in range(len(data_matrix)):
+        if "Thành Tiền" in data_matrix[col][0]:
+            for row in range(1, len(data_matrix[col])):
+                total_amount += int(data_matrix[col][row])
+    return total_amount
 
 def check_equal_column_lengths(data_matrix_processed):
     '''Check if all columns in the data matrix have the same number of elements'''
@@ -146,8 +159,8 @@ def check_equal_column_lengths(data_matrix_processed):
         return False  # Nếu ma trận rỗng, coi như có cùng số phần tử
 
     # Kiểm tra độ dài của ma trận (số cột)
-    if len(data_matrix_processed) != 7:
-        print("Error: Data matrix does not have enough columns. (!=7)")
+    if len(data_matrix_processed) != 8:
+        print("Error: Data matrix does not have enough columns. (!=8)")
         return False
     # Lấy số phần tử của cột đầu tiên
     column_length = len(data_matrix_processed[0])
@@ -170,18 +183,20 @@ def Read_data_matrix(data_matrix_processed):
     product_codes = data_matrix_processed[1]  # Mã hàng
     product_names = data_matrix_processed[2]  # Tên hàng hóa, dịch vụ
     units = data_matrix_processed[3]  # ĐVT
-    quantities = data_matrix_processed[4]  # Số lượng
-    unit_prices = data_matrix_processed[5]  # Đơn giá
-    total_prices = data_matrix_processed[6]  # Thành tiền
+    estimated_quantities = data_matrix_processed[4]  # Số lượng theo chứng từ
+    actual_quantities = data_matrix_processed[5]  # Số lượng theo thực nhập
+    unit_prices = data_matrix_processed[6]  # Đơn giá
+    total_prices = data_matrix_processed[7]  # Thành tiền
 
-    # # In nội dung của từng biến
-    # print("Serial Numbers (STT):", serial_numbers)
-    # print("Product Codes (Mã hàng):", product_codes)
-    # print("Product Names (Tên hàng hóa, dịch vụ):", product_names)
-    # print("Units (ĐVT):", units)
-    # print("Quantities (Số lượng):", quantities)
-    # print("Unit Prices (Đơn giá):", unit_prices)
-    # print("Total Prices (Thành tiền):", total_prices)
+    # In nội dung của từng biến
+    print("Serial Numbers (STT):", serial_numbers)
+    print("Product Codes (Mã hàng):", product_codes)
+    print("Product Names (Tên hàng hóa, dịch vụ):", product_names)
+    print("Units (ĐVT):", units)
+    print("Quantities (Số lượng theo chứng từ):", estimated_quantities)
+    print("Quantities (Số lượng thực nhập):", actual_quantities)
+    print("Unit Prices (Đơn giá):", unit_prices)
+    print("Total Prices (Thành tiền):", total_prices)
 
     # In ví dụ từng giá trị
     for i in range(len(serial_numbers)):
@@ -190,11 +205,11 @@ def Read_data_matrix(data_matrix_processed):
         print(f"  Product Code: {product_codes[i]}")
         print(f"  Product Name: {product_names[i]}")
         print(f"  Unit: {units[i]}")
-        print(f"  Quantity: {quantities[i]}")
+        print(f"  Estimated quantity: {estimated_quantities[i]}")
+        print(f"  Actual quantity: {actual_quantities[i]}")
         print(f"  Unit Price: {unit_prices[i]}")
         print(f"  Total Price: {total_prices[i]}")
-        text_display.insert("1.0", "\n" + f"Row {i + 1}:\n  Serial Number: {serial_numbers[i]}\n  Product Code: {product_codes[i]}\n  Product Name: {product_names[i]}\n  Unit: {units[i]}\n  Quantity: {quantities[i]}\n  Price: {unit_prices[i]}\n  Total Price: {total_prices[i]}")
-
+        text_display.insert("1.0", "\n" + f"Row {i + 1}:\n  Serial Number: {serial_numbers[i]}\n  Product Code: {product_codes[i]}\n  Product Name: {product_names[i]}\n  Unit: {units[i]}\n  Estimated quantity: {estimated_quantities[i]}\n  Actual quantity: {actual_quantities[i]}\n  Price: {unit_prices[i]}\n  Total Price: {total_prices[i]}")
 # detect invoice -------------------------------------------------------------------------
 
 def extract_text_from_image(client, image):
@@ -209,70 +224,136 @@ def extract_text_from_image(client, image):
     return ""
 
 def extract_model_number(text):
-    '''Extract "Mẫu số" from text'''
-    pattern = r"Mẫu số\s*:\s*(\S+)"
+    '''Extract "Số phiếu" from text'''
+    pattern = r"Số phiếu\s*:\s*(.+)"
     match = re.search(pattern, text, re.IGNORECASE)
     if match:
-        return re.sub(r"\s+", "", match.group(1))  # Remove spaces
+        return re.sub(r"[^\d]", "", match.group(1))  # Remove non-numeric characters
     return None
 
-def extract_tax_code(text):
-    '''Extract "Mã số thuế" for the seller (Đơn vị bán hàng) based on "Điện thoại"'''
-    # Tìm vị trí của cụm "Điện thoại"
-    phone_pattern = r"Điện ?thoại"  # Cho phép khoảng trắng không cố định
-    phone_match = re.search(phone_pattern, text, re.IGNORECASE)
+import re
+
+def extract_delivery(text):
+    '''Extract "Người giao hàng" from text, and replace multiple spaces with one, handle ellipsis'''
+    # Pattern tìm kiếm chuỗi "Người giao hàng" với khoảng trắng linh động
+    pattern = r"\s*Người\s*giao\s*hàng\s*:?\s*\.*(.+)"
+    match = re.search(pattern, text, re.IGNORECASE)  # Tìm kiếm với biểu thức chính quy không phân biệt hoa thường
     
-    if phone_match:
-        # Cắt đoạn văn bản trước cụm "Điện thoại"
-        text_before_phone = text[:phone_match.start()]
-        # print("Text before 'Điện thoại':", text_before_phone)  # Nhật ký kiểm tra
+    if match:
+        # Loại bỏ khoảng trắng thừa ở đầu và cuối
+        delivery = match.group(1).strip()  
+        # Thay thế nhiều khoảng trắng liên tiếp bằng một khoảng trắng duy nhất
+        delivery = re.sub(r"\s{2,}", " ", delivery)
+        # Loại bỏ dấu chấm (và các ký tự không mong muốn như dấu chấm lửng)
+        delivery = re.sub(r"[.]+", "", delivery).strip()
+        return delivery
+    return None
+
+
+def extract_date(text):
+    '''Extract "Ngày", "Tháng", "Năm" based on the structure: "Ngày ....... tháng ........ năm .........", including periods and spaces, replace "o" with "0", and remove non-numeric characters'''
+    
+    # Điều chỉnh biểu thức chính quy để chấp nhận dấu chấm và khoảng trắng giữa các phần ngày, tháng, năm
+    date_pattern = r"Ngày\s*\.*\,*([0-9a-zA-Z\s\.]+)\,*\.*\s*tháng\s*\.*\,*([0-9a-zA-Z\s\.]+)\,*\.*\s*năm\s*\.*\,*([0-9a-zA-Z\s\.]+)"
+    
+    date_match = re.search(date_pattern, text, re.IGNORECASE)
+    
+    if date_match:
+        # Lấy các phần ngày, tháng, năm từ nhóm bắt được
+        day = date_match.group(1).strip()
+        month = date_match.group(2).strip()
+        year = date_match.group(3).strip()
         
-        # Tìm "Mã số thuế" trong đoạn văn bản trước đó
-        tax_pattern = r"Mã số thuế[^0-9]*(\d[\d.]*)"  # Chấp nhận dấu "." hoặc ký tự xen giữa
-        tax_match = re.search(tax_pattern, text_before_phone, re.IGNORECASE)
+        # Thay "o" và "O" thành "0"
+        day = day.replace("o", "0").replace("O", "0")
+        month = month.replace("o", "0").replace("O", "0")
+        year = year.replace("o", "0").replace("O", "0")
         
-        if tax_match:
-            # Loại bỏ dấu "." khỏi mã số thuế
-            tax_code_clean = re.sub(r"\.", "", tax_match.group(1))
-            return tax_code_clean
+        # Loại bỏ tất cả các ký tự không phải là số, chỉ giữ lại số
+        day = re.sub(r"[^\d]", "", day)
+        month = re.sub(r"[^\d]", "", month)
+        year = re.sub(r"[^\d]", "", year)
+        
+        # Trả về ngày tháng năm dưới dạng yyyy-mm-dd
+        return f"{year}-{month.zfill(2)}-{day.zfill(2)}"
+    
+    return None
+
+
+
+def extract_tax_code(text):
+    '''Extract "Mã số thuế" for the seller (Đơn vị bán hàng) based on "Người giao hàng"'''
+    # Tìm "Mã số thuế" trong đoạn văn bản
+    tax_pattern = r"Mã số thuế[^0-9]*(\d[\d.]*)"  # Chấp nhận dấu "." hoặc ký tự xen giữa
+    tax_match = re.search(tax_pattern, text, re.IGNORECASE)
+    
+    if tax_match:
+        # Loại bỏ dấu "." khỏi mã số thuế
+        tax_code_clean = re.sub(r"o", "0", tax_match.group(1))
+        tax_code_clean = re.sub(r"O", "0", tax_match.group(1))
+        tax_code_clean = re.sub(r"[^\d]", "", tax_match.group(1)) # Remove non-numeric characters
+        return tax_code_clean
     
     # Trả về None nếu không tìm thấy
     return None
 
-def extract_vat(text):
-    '''Extract "Thuế GTGT" from text'''
-    pattern = r"Thuế GTGT\s*:\s*([\d.,]+)"
+def extract_report_number(text):
+    '''Extract "số biên bản bàn giao"'''
+    pattern = r"Theo\s*biên\s*bản\s*bàn\s*giao\s*hàng\s*hóa\s*số\s*:\s*(.+)"
     match = re.search(pattern, text, re.IGNORECASE)
     if match:
-        raw_value = re.sub(r"[^\d]", "", match.group(1))  # Remove non-numeric characters
-        return int(raw_value)  # Return as integer without '%'
+        # Gán lại match sau khi thay thế 'o' và 'O' bằng '0'
+        result = re.sub(r"[oO]", "0", match.group(1))  
+        # Xóa các ký tự không phải số
+        if result != "":
+            return re.sub(r"[^\d]", "", result)
     return None
 
-def extract_total_amount(text):
-    '''Extract "Cộng tiền hàng" from text'''
-    pattern = r"Cộng tiền hàng\s*:\s*([\d.,]+)"
+def extract_warehouse(text):
+    '''Extract warehouse "Nhập tại kho:"'''
+    pattern = r"Nhập\s*tại\s*kho\s*:\s*(.+)"
     match = re.search(pattern, text, re.IGNORECASE)
     if match:
-        raw_value = re.sub(r"[^\d]", "", match.group(1))  # Remove non-numeric characters
-        return int(raw_value)  # Return as integer without spaces
+        # Loại bỏ ký tự ko thuộc bảng chữ cái và - 
+        result = re.sub(r"[^a-zA-ZÀ-ỹà-ỹ0-9\s\-]", "", match.group(1))  
+        return result
     return None
+
+
+# def extract_total_amount(text):
+#     '''Extract "Tổng tiền" from text'''
+#     pattern = r"Tổng tiền\s*:\s*\.*(.+)"
+#     match = re.search(pattern, text, re.IGNORECASE)
+#     if match:
+#         raw_value = re.sub(r"o", "0", match.group(1))
+#         raw_value = re.sub(r"O", "0", raw_value)
+#         raw_value = re.sub(r"Q", "0", raw_value)
+#         raw_value = re.sub(r"[^\d]", "", raw_value)  # Remove non-numeric characters
+#         if raw_value:
+#             return int(raw_value)  # Return as integer without spaces
+#     return None
 
 def process_invoice(image_path, client):
     '''Process the invoice and extract required information'''
     image, gray = read_and_preprocess_image(image_path)
-    binary = apply_binary_filter(gray)
     text = extract_text_from_image(client, image)
-
+    print("extract from API respone: ")
+    print(text)
     model_number = extract_model_number(text)
     tax_code = extract_tax_code(text)
-    vat = extract_vat(text)
-    total_amount = extract_total_amount(text)
+    date_time = extract_date(text)
+    delivery = extract_delivery(text)
+    report_number = extract_report_number(text)
+    warehouse = extract_warehouse(text)
+    # total_amount = extract_total_amount(text)
 
-    if model_number is None or tax_code is None or vat is None or total_amount is None:
+    return model_number, tax_code, date_time, delivery, report_number, warehouse
+
+def check_invoice_infor(model_number, tax_code, date_time, delivery, report_number, warehouse):
+    if model_number is None or tax_code is None or date_time is None or delivery is None or report_number is None or warehouse is None:
         return False
-    else:
-        return model_number, tax_code, vat, total_amount
-
+    return True
+    
 # view code -------------------------------------------------------------------------
 
 def select_folder():
@@ -334,23 +415,28 @@ def detect_text():
 
     image, gray = read_and_preprocess_image(img_path)
     binary = apply_binary_filter(gray)
-    table_lines = detect_table_lines(binary)
-    cropped_table = extract_table_from_image(image, table_lines)
 
     # Detect the infor of invoice
-    if not process_invoice(img_path, client):
-        text_display.insert("1.0", "\nKhông nhận dạng đủ thông tin hóa đơn")
-        return False
-        
-    model_number, tax_code, vat, total_amount = process_invoice(img_path, client)
+    model_number, tax_code, date_time, delivery, report_number, warehouse = process_invoice(img_path, client)
+    print("-----------------------------------")
     print("Thông tin hóa đơn:")
     print("Số hóa đơn: ",model_number)
     print("Mã số thuế: ",tax_code)
-    print("Thuế GTGT: ", vat)
-    print("Tổng tiền hàng: ",total_amount)
-    text_display.insert("1.0", "\nSố hóa đơn: " + f"{model_number}"+ "\nMã số thuế: " + f"{tax_code}"+ "\nTổng tiền hàng: " + f"{total_amount}"+ "\nThuế GTGT: " + f"{vat}") #chèn thông tin hóa đơn
+    print("Ngày tháng: ",date_time)
+    print("Người giao: ",delivery)
+    print("Số biên bản: ", report_number)
+    print("Nhập tại kho: ", warehouse)
+    # print("Tổng tiền hàng: ",total_amount)
+    print("-----------------------------------")
+
+    if not check_invoice_infor(model_number, tax_code, date_time, delivery, report_number, warehouse):
+        text_display.insert("1.0", "\nKhông nhận dạng đủ thông tin hóa đơn")
+        return False
+    # Add to view
 
     # Detect the infor of table
+    table_lines = detect_table_lines(binary)
+    cropped_table = extract_table_from_image(image, table_lines)
     if cropped_table is None:
         text_display.insert("1.0", "\n" + "Không tìm thấy bảng")
         return False
@@ -358,7 +444,7 @@ def detect_text():
     filtered_positions = detect_and_filter_columns(cropped_table)
     data_matrix = detect_text_in_columns(client, cropped_table, filtered_positions)
     data_matrix_processed = process_data_matrix(data_matrix)
-
+    total_amount = sum_total_amount(data_matrix)
     # check data_matrix
     if not check_equal_column_lengths(data_matrix_processed):
         text_display.insert("1.0", "\n" + "Nhận dạng bảng không thành công.")
@@ -366,6 +452,7 @@ def detect_text():
 
     # Read data_matrix_processed
     Read_data_matrix(data_matrix_processed)
+    text_display.insert("1.0", "\nSố hóa đơn: " + f"{model_number}"+ "\nMã số thuế: " + f"{tax_code}"+ "\nNgày tháng: " + f"{date_time}"+ "\nNgười giao: " + f"{delivery}"+ "\nSố biên bản: " + f"{report_number}"+ "\nTổng tiền hàng: " + f"{total_amount}") #chèn thông tin hóa đơn
 
 def detect():
     global option_state
