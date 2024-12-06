@@ -5,7 +5,8 @@ import re
 import matplotlib.pyplot as plt
 from google.cloud import vision
 from unidecode import unidecode
-
+from datetime import datetime
+import connectdb as conn
 # lib for view
 import tkinter as tk
 from tkinter import filedialog, scrolledtext, messagebox
@@ -14,6 +15,7 @@ from tkinter import filedialog, scrolledtext, messagebox
 api_path = None
 client = None
 # Biến lưu trữ đường dẫn đã chọn
+img_name = None
 selected_path = None
 img_path = None
 folder_list_path = None
@@ -350,7 +352,7 @@ def process_invoice(image_path, client):
     return model_number, tax_code, date_time, delivery, report_number, warehouse
 
 def check_invoice_infor(model_number, tax_code, date_time, delivery, report_number, warehouse):
-    if model_number is None or tax_code is None or date_time is None or delivery is None or report_number is None or warehouse is None:
+    if model_number is None or model_number == "" or tax_code is None or tax_code == "" or date_time is None or date_time == "" or delivery is None or delivery == "" or report_number is None or report_number == "" or warehouse is None or warehouse == "":
         return False
     return True
     
@@ -402,8 +404,10 @@ def select_file():
         global selected_path
         global img_path
         global option_state
+        global img_name
         selected_path = file_path
         img_path = file_path
+        img_name = os.path.basename(file_path)
         # update state 0 for select file
         option_state = 0
 
@@ -412,53 +416,74 @@ def detect_text():
     global client
     global img_path
     global text_display
-
+    global img_name
     image, gray = read_and_preprocess_image(img_path)
     binary = apply_binary_filter(gray)
+    result_text = f"\nfile {img_name}"
 
     # Detect the infor of invoice
     model_number, tax_code, date_time, delivery, report_number, warehouse = process_invoice(img_path, client)
-    print("-----------------------------------")
-    print("Thông tin hóa đơn:")
-    print("Số hóa đơn: ",model_number)
-    print("Mã số thuế: ",tax_code)
-    print("Ngày tháng: ",date_time)
-    print("Người giao: ",delivery)
-    print("Số biên bản: ", report_number)
-    print("Nhập tại kho: ", warehouse)
-    # print("Tổng tiền hàng: ",total_amount)
-    print("-----------------------------------")
 
     if not check_invoice_infor(model_number, tax_code, date_time, delivery, report_number, warehouse):
-        text_display.insert("1.0", "\nKhông nhận dạng đủ thông tin hóa đơn")
+        result_text += "\n\tKhông nhận dạng đủ thông tin hóa đơn"
+        text_display.insert("1.0", result_text)
         return False
-    # Add to view
 
     # Detect the infor of table
     table_lines = detect_table_lines(binary)
     cropped_table = extract_table_from_image(image, table_lines)
     if cropped_table is None:
-        text_display.insert("1.0", "\n" + "Không tìm thấy bảng")
+        result_text += f"\n\tNhận dạng bảng không thành công"
+        text_display.insert("1.0", result_text)
         return False
     
     filtered_positions = detect_and_filter_columns(cropped_table)
     data_matrix = detect_text_in_columns(client, cropped_table, filtered_positions)
     data_matrix_processed = process_data_matrix(data_matrix)
     total_amount = sum_total_amount(data_matrix)
+    # Lấy ngày tháng hiện tại
+    current_date = datetime.now().strftime('%Y-%m-%d')
+
     # check data_matrix
     if not check_equal_column_lengths(data_matrix_processed):
-        text_display.insert("1.0", "\n" + "Nhận dạng bảng không thành công.")
+        result_text += f"\n\tBảng sản phẩm không đủ thông tin"
+        text_display.insert("1.0", result_text)
         return False
 
-    # Read data_matrix_processed
-    Read_data_matrix(data_matrix_processed)
-    text_display.insert("1.0", "\nSố hóa đơn: " + f"{model_number}"+ "\nMã số thuế: " + f"{tax_code}"+ "\nNgày tháng: " + f"{date_time}"+ "\nNgười giao: " + f"{delivery}"+ "\nSố biên bản: " + f"{report_number}"+ "\nTổng tiền hàng: " + f"{total_amount}") #chèn thông tin hóa đơn
+    # # Read data_matrix_processed
+    # Read_data_matrix(data_matrix_processed)
+
+    # Connect to db
+    connection = conn.connect_to_db()
+    # Insert order
+    order_status = conn.insert_order(connection, int(model_number), tax_code, date_time, current_date, int(total_amount), "01-VT", int(report_number), delivery, warehouse )
+    if order_status == 1:
+        result_text += f"\n\tSố hóa đơn: {model_number}"
+        # Insert order detail
+        serial_numbers = data_matrix_processed[0]           # STT
+        product_codes = data_matrix_processed[1]            # Mã hàng
+        estimated_quantities = data_matrix_processed[4]     # Số lượng theo chứng từ
+        actual_quantities = data_matrix_processed[5]        # Số lượng theo thực nhập
+        total_prices = data_matrix_processed[7]             # Thành tiền
+        for i in range(1,len(serial_numbers)):
+            detail_status = conn.insert_order_detail(connection, int(model_number), product_codes[i], int(estimated_quantities[i]), int(actual_quantities[i]), int(total_prices[i]))
+            if detail_status == 1:
+                result_text += f"\n\t\t{serial_numbers[i]}: thành công"
+            elif detail_status == 0:
+                result_text += f"\n\t\t{serial_numbers[i]}: không thành công"
+    else:
+        result_text += f"\n\tThêm thất bại."
+    connection.commit()
+    # Disconnect to db
+    conn.disconnect_from_db(connection)
+    text_display.insert("1.0", result_text) #chèn thông tin hóa đơn
 
 def detect():
     global option_state
     global folder_list_path
     global img_path
     global client
+    global img_name
 
     # Bật chế độ chỉnh sửa của view
     text_display.config(state="normal")
@@ -471,6 +496,7 @@ def detect():
     else:   # select folder 1
         for path in folder_list_path:
             img_path = path
+            img_name = os.path.basename(path)
             detect_text()
 
     text_display.config(state="disabled")  # Đặt lại chế độ chỉ đọc
